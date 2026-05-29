@@ -199,6 +199,10 @@
 .upload-zone{border:2px dashed #1c4a2c;border-radius:11px;padding:18px;text-align:center;cursor:pointer;color:#8fcf8f;transition:.2s}
 .upload-zone:hover{border-color:#33ff77;background:#0a140a}
 .upload-zone img{max-height:120px;border-radius:8px;margin-top:8px}
+.svc-media-tabs{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
+.svc-mtab{flex:1;min-width:90px;background:#0d160d;border:1px solid #1c4a2c;color:#9fc7a8;padding:9px 8px;border-radius:9px;cursor:pointer;font-family:inherit;font-size:.82rem;transition:.18s;display:flex;align-items:center;justify-content:center;gap:6px}
+.svc-mtab:hover{border-color:#33ff77}
+.svc-mtab.active{background:#13351f;border-color:#33ff77;color:#fff}
 .modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:20px}
 .btn-cancel{background:#16291a;border:1px solid #1c4a2c;color:#9fe0b5;padding:11px 19px;border-radius:11px;cursor:pointer;font-family:inherit;font-size:.9rem}
 
@@ -1216,11 +1220,41 @@
   <div class="adm-modal-box">
     <h3><i class="fas fa-screwdriver-wrench"></i> <span id="modal-svc-title">Editar Serviço</span></h3>
     <input type="hidden" id="svc-idx">
-    <div class="field"><label>Foto do serviço</label>
-      <div class="upload-zone" onclick="document.getElementById('svc-file').click()">
-        <i class="fas fa-camera"></i> Clique para enviar uma foto<br><img id="svc-img-preview" style="display:none">
+    <div class="field"><label>Mídia do serviço</label>
+      <div class="svc-media-tabs">
+        <button type="button" class="svc-mtab active" data-mt="upload" onclick="svcSetMode('upload')"><i class="fas fa-upload"></i> Enviar foto</button>
+        <button type="button" class="svc-mtab" data-mt="video" onclick="svcSetMode('video')"><i class="fas fa-film"></i> Enviar vídeo</button>
+        <button type="button" class="svc-mtab" data-mt="url" onclick="svcSetMode('url')"><i class="fas fa-link"></i> Colar URL</button>
       </div>
-      <input type="file" id="svc-file" accept="image/*" style="display:none" onchange="onSvcPhoto(event)">
+
+      <!-- upload de foto -->
+      <div id="svc-mode-upload">
+        <div class="upload-zone" onclick="document.getElementById('svc-file').click()">
+          <i class="fas fa-camera"></i> Clique para enviar uma foto
+        </div>
+        <input type="file" id="svc-file" accept="image/*" style="display:none" onchange="onSvcPhoto(event)">
+      </div>
+
+      <!-- upload de vídeo -->
+      <div id="svc-mode-video" style="display:none">
+        <div class="upload-zone" onclick="document.getElementById('svc-vfile').click()">
+          <i class="fas fa-video"></i> Clique para enviar um vídeo (mp4)<br>
+          <small style="color:#6a9a6a">Dica: vídeos curtos e leves carregam mais rápido</small>
+        </div>
+        <input type="file" id="svc-vfile" accept="video/*" style="display:none" onchange="onSvcVideo(event)">
+      </div>
+
+      <!-- url -->
+      <div id="svc-mode-url" style="display:none">
+        <input type="text" id="svc-url" placeholder="Cole o link da imagem (.jpg/.png) ou vídeo (.mp4)" oninput="svcUrlPreview()" style="width:100%;background:#0a140a;border:1px solid #1c4a2c;border-radius:10px;padding:11px;color:#dff3e4;font-family:inherit">
+      </div>
+
+      <!-- preview unificado -->
+      <div id="svc-preview-wrap" style="margin-top:10px;display:none">
+        <img id="svc-img-preview" style="display:none;max-height:140px;border-radius:8px;width:100%;object-fit:cover">
+        <video id="svc-vid-preview" style="display:none;max-height:140px;border-radius:8px;width:100%;object-fit:cover" muted loop playsinline controls></video>
+        <button type="button" class="btn-mini del" style="margin-top:8px" onclick="svcLimparMidia()"><i class="fas fa-trash"></i> Remover mídia</button>
+      </div>
     </div>
     <div class="field"><label>Título</label><input type="text" id="svc-titulo" placeholder="Ex: Smartphones"></div>
     <div class="field"><label>Descrição</label><textarea id="svc-desc" rows="3" placeholder="Descreva o serviço..."></textarea></div>
@@ -1423,16 +1457,18 @@ if(window.netlifyIdentity){
     _netlifyUser=user;
     window.netlifyIdentity.close();
     var err=document.getElementById('login-error');
+    // Fecha a janelinha verde imediatamente ao logar
+    window.closeLogin();
     // Verifica se o e-mail é o autorizado
     if(user.email.toLowerCase()===ALLOWED_EMAIL.toLowerCase()){
       if(err)err.style.display='none';
-      window.closeLogin();
       var u2=document.getElementById('admin-user2'); if(u2)u2.textContent=user.email;
       window.abrirPainel();
     } else {
       // e-mail não autorizado → desloga imediatamente
       window.netlifyIdentity.logout();
       _netlifyUser=null;
+      document.getElementById('login-overlay').classList.add('open');
       if(err){
         document.getElementById('login-error-txt').textContent='E-mail não autorizado para acessar o painel.';
         err.style.display='flex';
@@ -1441,6 +1477,21 @@ if(window.netlifyIdentity){
   });
   window.netlifyIdentity.on('logout', function(){
     _netlifyUser=null;
+  });
+  // Quando o widget é fechado: se já existir usuário logado e autorizado,
+  // entra direto no painel (o evento 'login' não dispara para sessão já ativa)
+  window.netlifyIdentity.on('close', function(){
+    var current=window.netlifyIdentity.currentUser();
+    if(current && current.email.toLowerCase()===ALLOWED_EMAIL.toLowerCase()){
+      _netlifyUser=current;
+      var err=document.getElementById('login-error'); if(err)err.style.display='none';
+      var u2=document.getElementById('admin-user2'); if(u2)u2.textContent=current.email;
+      window.closeLogin();
+      window.abrirPainel();
+    } else if(!document.getElementById('admin-panel').classList.contains('open')){
+      // Fechou o widget sem logar e o painel não está aberto → reabre a janelinha verde
+      document.getElementById('login-overlay').classList.add('open');
+    }
   });
 }
 
@@ -1456,6 +1507,8 @@ window.abrirNetlifyLogin=function(){
     window.abrirPainel();
     return;
   }
+  // Fecha a janelinha verde imediatamente ao abrir o widget do Netlify
+  window.closeLogin();
   window.netlifyIdentity.open('login');
 };
 
@@ -2167,12 +2220,19 @@ function svcAt(i){
   return {
     titulo: s.titulo!=null&&s.titulo!=='' ? s.titulo : d.titulo,
     desc:   s.desc!=null&&s.desc!=='' ? s.desc : d.desc,
-    foto:   s.foto || null,
-    fotoDefault: null,
+    foto:   s.foto || null,                 // dados da mídia (imagem ou vídeo)
+    tipo:   s.tipo || 'foto',               // 'foto' ou 'video'
     icon:   d.icon
   };
 }
-/* aplica os textos/fotos editados nos cartões reais da página inicial */
+/* detecta se uma URL/dado é vídeo */
+function svcEhVideo(src, tipo){
+  if(tipo==='video') return true;
+  if(!src) return false;
+  if(src.indexOf('data:video')===0) return true;
+  return /\.(mp4|webm|ogg|mov|m4v)(\?|#|$)/i.test(src);
+}
+/* aplica os textos/mídias editados nos cartões reais da página inicial */
 function renderServicosPublic(){
   var cards=document.querySelectorAll('#services-grid-public .service-card');
   cards.forEach(function(card){
@@ -2180,8 +2240,17 @@ function renderServicosPublic(){
     var v=svcAt(i);
     var h3=card.querySelector('.service-body h3'); if(h3)h3.textContent=v.titulo;
     var p=card.querySelector('.service-body p'); if(p)p.textContent=v.desc;
-    var img=card.querySelector('.service-img-banner img');
-    if(img && v.foto){ img.src=v.foto; img.setAttribute('alt', v.titulo); }
+    var banner=card.querySelector('.service-img-banner');
+    if(!banner) return;
+    if(v.foto){
+      if(svcEhVideo(v.foto, v.tipo)){
+        banner.innerHTML='<video src="'+v.foto+'" autoplay muted loop playsinline '+
+          'style="width:100%;height:100%;object-fit:cover" alt="'+esc(v.titulo)+'"></video>';
+      } else {
+        banner.innerHTML='<img src="'+v.foto+'" alt="'+esc(v.titulo)+'" loading="lazy" '+
+          'crossorigin="anonymous" style="width:100%;height:100%;object-fit:cover">';
+      }
+    }
   });
 }
 /* grade no painel admin */
@@ -2189,32 +2258,89 @@ function renderServicosAdmin(){
   var grid=document.getElementById('adm-svc-grid'); if(!grid) return;
   grid.innerHTML=SVC_DEFAULTS.map(function(d,i){
     var v=svcAt(i);
-    var img=v.foto?'<img src="'+v.foto+'">':'<i class="fas '+d.icon+' ph-ico"></i>';
+    var media;
+    if(v.foto){
+      media = svcEhVideo(v.foto, v.tipo)
+        ? '<video src="'+v.foto+'" muted loop></video>'
+        : '<img src="'+v.foto+'">';
+    } else {
+      media = '<i class="fas '+d.icon+' ph-ico"></i>';
+    }
     return '<div class="adm-svc-card">'+
-      '<div class="adm-svc-img">'+img+'</div>'+
+      '<div class="adm-svc-img">'+media+'</div>'+
       '<div class="adm-svc-info"><b>'+esc(v.titulo)+'</b><small>'+esc(v.desc)+'</small></div>'+
       '<div class="adm-svc-actions"><button class="btn-mini" onclick="abrirModalSvc('+i+')"><i class="fas fa-pen"></i> Editar</button>'+
       '<button class="btn-mini del" onclick="resetSvc('+i+')"><i class="fas fa-rotate-left"></i> Padrão</button></div></div>';
   }).join('');
 }
-var svcPhoto=null;
+
+var svcPhoto=null;       // conteúdo da mídia (dataURL ou URL)
+var svcPhotoTipo='foto'; // 'foto' ou 'video'
+
+window.svcSetMode=function(mode){
+  ['upload','video','url'].forEach(function(m){
+    var el=document.getElementById('svc-mode-'+m);
+    if(el)el.style.display = (m===mode?'block':'none');
+  });
+  document.querySelectorAll('.svc-mtab').forEach(function(b){
+    b.classList.toggle('active', b.getAttribute('data-mt')===mode);
+  });
+};
+function svcMostrarPreview(){
+  var wrap=document.getElementById('svc-preview-wrap');
+  var img=document.getElementById('svc-img-preview');
+  var vid=document.getElementById('svc-vid-preview');
+  if(!svcPhoto){ wrap.style.display='none'; img.style.display='none'; vid.style.display='none'; return; }
+  wrap.style.display='block';
+  if(svcEhVideo(svcPhoto, svcPhotoTipo)){
+    vid.src=svcPhoto; vid.style.display='block'; img.style.display='none'; try{vid.play();}catch(e){}
+  } else {
+    img.src=svcPhoto; img.style.display='block'; vid.style.display='none';
+  }
+}
 window.abrirModalSvc=function(i){
-  svcPhoto=null;
   var v=svcAt(i);
+  svcPhoto=v.foto||null;
+  svcPhotoTipo=v.tipo||(svcEhVideo(v.foto)?'video':'foto');
   document.getElementById('svc-idx').value=i;
   document.getElementById('modal-svc-title').textContent='Editar: '+v.titulo;
   document.getElementById('svc-titulo').value=v.titulo;
   document.getElementById('svc-desc').value=v.desc;
-  var prev=document.getElementById('svc-img-preview');
-  svcPhoto=v.foto||null;
-  if(svcPhoto){prev.src=svcPhoto;prev.style.display='block';}else{prev.style.display='none';}
+  document.getElementById('svc-file').value='';
+  document.getElementById('svc-vfile').value='';
+  var u=document.getElementById('svc-url'); if(u)u.value=(svcPhoto && (svcPhoto.indexOf('data:')!==0))?svcPhoto:'';
+  svcSetMode('upload');
+  svcMostrarPreview();
   abrirModal('modal-svc');
 };
 window.onSvcPhoto=function(ev){
   var f=ev.target.files[0]; if(!f) return;
   var r=new FileReader();
-  r.onload=function(){ svcPhoto=r.result; var prev=document.getElementById('svc-img-preview'); prev.src=svcPhoto; prev.style.display='block'; };
+  r.onload=function(){ svcPhoto=r.result; svcPhotoTipo='foto'; svcMostrarPreview(); };
   r.readAsDataURL(f);
+};
+window.onSvcVideo=function(ev){
+  var f=ev.target.files[0]; if(!f) return;
+  if(f.size > 8*1024*1024){
+    if(!confirm('Esse vídeo tem mais de 8MB. Vídeos grandes deixam o site lento e podem não salvar. Continuar mesmo assim?')) { ev.target.value=''; return; }
+  }
+  var r=new FileReader();
+  r.onload=function(){ svcPhoto=r.result; svcPhotoTipo='video'; svcMostrarPreview(); };
+  r.readAsDataURL(f);
+};
+window.svcUrlPreview=function(){
+  var val=(document.getElementById('svc-url').value||'').trim();
+  if(!val){ svcPhoto=null; svcMostrarPreview(); return; }
+  svcPhoto=val;
+  svcPhotoTipo=svcEhVideo(val)?'video':'foto';
+  svcMostrarPreview();
+};
+window.svcLimparMidia=function(){
+  svcPhoto=null; svcPhotoTipo='foto';
+  var u=document.getElementById('svc-url'); if(u)u.value='';
+  document.getElementById('svc-file').value='';
+  document.getElementById('svc-vfile').value='';
+  svcMostrarPreview();
 };
 window.salvarSvc=function(){
   var i=parseInt(document.getElementById('svc-idx').value,10);
@@ -2223,9 +2349,16 @@ window.salvarSvc=function(){
   DB.servicos[i]={
     titulo:document.getElementById('svc-titulo').value.trim(),
     desc:document.getElementById('svc-desc').value.trim(),
-    foto:svcPhoto||null
+    foto:svcPhoto||null,
+    tipo:svcPhoto?(svcEhVideo(svcPhoto,svcPhotoTipo)?'video':'foto'):'foto'
   };
-  save(); renderServicosAdmin(); renderServicosPublic(); fecharModal('modal-svc');
+  try{
+    save();
+  }catch(e){
+    alert('Não foi possível salvar — a mídia pode ser grande demais para o armazenamento do navegador. Tente um arquivo menor ou use uma URL.');
+    return;
+  }
+  renderServicosAdmin(); renderServicosPublic(); fecharModal('modal-svc');
 };
 window.resetSvc=function(i){
   if(!confirm('Restaurar este serviço para o padrão original?'))return;
