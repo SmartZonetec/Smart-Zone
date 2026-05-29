@@ -11,6 +11,9 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 <link rel="stylesheet" href="style.css">
 
+<!-- Netlify Identity Widget -->
+<script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+
 <style id="admin-panel-styles">
 /* ===== LOGIN ERROR ===== */
 .login-error{display:none;background:rgba(255,60,60,.12);color:#ff7b7b;border:1px solid rgba(255,60,60,.4);padding:9px 12px;border-radius:8px;font-size:.85rem;margin-bottom:10px}
@@ -744,19 +747,22 @@
     <img src="SMART_ZONE.png" alt="Smart Zone" class="login-logo" id="login-logo-img">
     <h2 class="login-title">Área Restrita</h2>
     <p class="login-sub">Acesso exclusivo do administrador</p>
-    <div class="login-field">
-      <i class="fas fa-envelope"></i>
-      <input type="email" id="login-email" placeholder="E-mail" autocomplete="username">
+
+    <!-- Loading state -->
+    <div id="login-loading" style="text-align:center;padding:20px 0;display:none">
+      <i class="fas fa-circle-notch fa-spin" style="font-size:2rem;color:#33ff77"></i>
+      <p style="color:#8fcf8f;margin:10px 0 0;font-size:.9rem">Verificando credenciais...</p>
     </div>
-    <div class="login-field">
-      <i class="fas fa-lock"></i>
-      <input type="password" id="login-pass" placeholder="Senha" autocomplete="current-password">
-      <button class="login-eye" onclick="toggleSenha()" aria-label="Mostrar senha"><i class="fas fa-eye" id="eye-icon"></i></button>
+
+    <!-- Netlify Identity button -->
+    <div id="login-netlify-area" style="text-align:center;padding:10px 0">
+      <button class="btn-login-submit" id="btn-netlify-login" onclick="abrirNetlifyLogin()">
+        <i class="fas fa-right-to-bracket"></i> Entrar com sua conta
+      </button>
+      <div class="login-error" id="login-error" style="margin-top:12px"><i class="fas fa-exclamation-circle"></i> <span id="login-error-txt">Acesso não autorizado.</span></div>
     </div>
-    <div class="login-error" id="login-error"><i class="fas fa-exclamation-circle"></i> E-mail ou senha incorretos.</div>
-    <button class="btn-login-submit" onclick="fazerLogin()"><i class="fas fa-right-to-bracket"></i> Entrar</button>
-    <p class="login-hint">Apenas administradores autorizados.</p>
-    <p class="login-hint" style="margin-top:6px"><a href="#" onclick="abrirRecuperar();return false;" style="color:#33ff77;text-decoration:underline;cursor:pointer">Esqueci minha senha</a></p>
+
+    <p class="login-hint" style="margin-top:14px"><i class="fas fa-shield-halved" style="color:#33ff77;margin-right:4px"></i> Login protegido pelo Netlify Identity</p>
   </div>
 </div>
 
@@ -1354,11 +1360,11 @@
 <script id="admin-panel-script">
 (function(){
 "use strict";
-var ADMIN_EMAIL="Smartzonematriz@gmail.com", ADMIN_PASS="@Dlz1nx69";
+/* ── credenciais removidas do código ── segurança via Netlify Identity ── */
 var LOGO_DEFAULT="SMART_ZONE.png";
 
 /* ===================== STORAGE ===================== */
-var DB={phones:[],os:[],gastos:[],estoque:[],clientes:[],servicos:[],precos:[],depoimentos:[],config:{},auth:null,logo:null,logoFooter:null};
+var DB={phones:[],os:[],gastos:[],estoque:[],clientes:[],servicos:[],precos:[],depoimentos:[],config:{},logo:null,logoFooter:null};
 function load(){
   try{
     var raw=localStorage.getItem('smartzone_db');
@@ -1368,10 +1374,6 @@ function load(){
   if(!Array.isArray(DB.servicos)) DB.servicos=[];
   if(!Array.isArray(DB.precos)) DB.precos=[];
   if(!Array.isArray(DB.depoimentos)) DB.depoimentos=[];
-  if(!DB.auth||typeof DB.auth!=='object'){ DB.auth={email:ADMIN_EMAIL, pass:ADMIN_PASS}; }
-  if(!DB.auth.email) DB.auth.email=ADMIN_EMAIL;
-  if(!DB.auth.pass) DB.auth.pass=ADMIN_PASS;
-  if(!DB.auth.emailjs||typeof DB.auth.emailjs!=='object') DB.auth.emailjs={service:'', template:'', publicKey:''};
 }
 function save(){
   try{ localStorage.setItem('smartzone_db', JSON.stringify(DB)); }
@@ -1408,14 +1410,69 @@ window.onFooterLogoSelected=function(ev){
 window.resetFooterLogo=function(){ DB.logoFooter=null; save(); aplicarLogo(); alert('Logo do rodapé restaurada para o padrão.'); };
 
 /* ===================== LOGIN ===================== */
-window.openLogin=function(){ document.getElementById('login-overlay').classList.add('open'); };
-window.closeLogin=function(){ document.getElementById('login-overlay').classList.remove('open'); var e=document.getElementById('login-error'); if(e)e.classList.remove('show'); };
+/* ===================== NETLIFY IDENTITY AUTH ===================== */
+var _netlifyUser = null;
+var ALLOWED_EMAIL = 'Smartzonematriz@gmail.com';
+
+// Inicializa o Netlify Identity
+if(window.netlifyIdentity){
+  window.netlifyIdentity.on('init', function(user){
+    if(user){ _netlifyUser=user; }
+  });
+  window.netlifyIdentity.on('login', function(user){
+    _netlifyUser=user;
+    window.netlifyIdentity.close();
+    var err=document.getElementById('login-error');
+    // Verifica se o e-mail é o autorizado
+    if(user.email.toLowerCase()===ALLOWED_EMAIL.toLowerCase()){
+      if(err)err.style.display='none';
+      window.closeLogin();
+      var u2=document.getElementById('admin-user2'); if(u2)u2.textContent=user.email;
+      window.abrirPainel();
+    } else {
+      // e-mail não autorizado → desloga imediatamente
+      window.netlifyIdentity.logout();
+      _netlifyUser=null;
+      if(err){
+        document.getElementById('login-error-txt').textContent='E-mail não autorizado para acessar o painel.';
+        err.style.display='flex';
+      }
+    }
+  });
+  window.netlifyIdentity.on('logout', function(){
+    _netlifyUser=null;
+  });
+}
+
+window.abrirNetlifyLogin=function(){
+  if(!window.netlifyIdentity){
+    alert('Netlify Identity não carregou. Verifique sua conexão.');
+    return;
+  }
+  // Se já está logado com e-mail autorizado, entra direto
+  var current=window.netlifyIdentity.currentUser();
+  if(current && current.email.toLowerCase()===ALLOWED_EMAIL.toLowerCase()){
+    window.closeLogin();
+    window.abrirPainel();
+    return;
+  }
+  window.netlifyIdentity.open('login');
+};
+
+window.openLogin=function(){
+  var err=document.getElementById('login-error'); if(err)err.style.display='none';
+  document.getElementById('login-overlay').classList.add('open');
+};
+window.closeLogin=function(){
+  document.getElementById('login-overlay').classList.remove('open');
+};
+function authEmail(){
+  return (_netlifyUser&&_netlifyUser.email)||ALLOWED_EMAIL;
+}
 window.toggleSenha=function(){ var p=document.getElementById('login-pass'),i=document.getElementById('eye-icon'); if(p.type==='password'){p.type='text';i.className='fas fa-eye-slash';}else{p.type='password';i.className='fas fa-eye';} };
 
 /* ===================== RECUPERAÇÃO / TROCA DE SENHA ===================== */
-function authEmail(){ return (DB.auth&&DB.auth.email)||ADMIN_EMAIL; }
-function authPass(){ return (DB.auth&&DB.auth.pass)||ADMIN_PASS; }
-function ejsCfg(){ return (DB.auth&&DB.auth.emailjs)||{service:'',template:'',publicKey:''}; }
+function ejsCfg(){ return (DB.config&&DB.config.emailjs)||{service:'',template:'',publicKey:''}; }
 function ejsConfigurada(){ var c=ejsCfg(); return !!(c.service&&c.template&&c.publicKey&&typeof emailjs!=='undefined'); }
 
 var recCodigo=null, recExpira=0;
@@ -1482,60 +1539,29 @@ window.enviarCodigoRecuperacao=function(){
 };
 
 window.confirmarRecuperacao=function(){
-  document.getElementById('rec-err-2').classList.remove('show');
-  var cod=(document.getElementById('rec-codigo').value||'').trim();
-  var nova=document.getElementById('rec-nova').value||'';
-  var nova2=document.getElementById('rec-nova2').value||'';
-  if(!recCodigo||Date.now()>recExpira){ recErr2('O código expirou. Reenvie um novo código.'); return; }
-  if(cod!==recCodigo){ recErr2('Código incorreto.'); return; }
-  if(nova.length<6){ recErr2('A nova senha deve ter pelo menos 6 caracteres.'); return; }
-  if(nova!==nova2){ recErr2('As senhas não coincidem.'); return; }
-  if(!DB.auth) DB.auth={email:ADMIN_EMAIL,pass:ADMIN_PASS,emailjs:ejsCfg()};
-  DB.auth.pass=nova;
-  save();
-  recCodigo=null; recExpira=0;
+  // Recuperação de senha agora gerenciada pelo Netlify Identity
   fecharModal('modal-recuperar');
-  alert('✅ Senha redefinida com sucesso! Faça login com a nova senha.');
+  alert('Para redefinir sua senha, use o link de recuperação enviado pelo Netlify Identity para o seu e-mail.');
   window.openLogin();
 };
 
 /* trocar senha logado */
 window.abrirTrocarSenha=function(){
-  document.getElementById('ts-atual').value='';
-  document.getElementById('ts-nova').value='';
-  document.getElementById('ts-nova2').value='';
-  document.getElementById('ts-err').classList.remove('show');
-  abrirModal('modal-trocar-senha');
+  alert('A senha agora é gerenciada pelo Netlify Identity.\n\nPara alterar:\n1. Acesse app.netlify.com\n2. Vá em Identity → seu usuário\n3. Clique em "Send password recovery email"');
 };
-function tsErr(msg){ var e=document.getElementById('ts-err'); document.getElementById('ts-err-txt').textContent=msg; e.classList.add('show'); }
+function tsErr(msg){ var e=document.getElementById('ts-err'); if(!e)return; document.getElementById('ts-err-txt').textContent=msg; e.classList.add('show'); }
 window.confirmarTrocaSenha=function(){
-  document.getElementById('ts-err').classList.remove('show');
-  var atual=document.getElementById('ts-atual').value||'';
-  var nova=document.getElementById('ts-nova').value||'';
-  var nova2=document.getElementById('ts-nova2').value||'';
-  if(atual!==authPass()){ tsErr('A senha atual está incorreta.'); return; }
-  if(nova.length<6){ tsErr('A nova senha deve ter pelo menos 6 caracteres.'); return; }
-  if(nova===atual){ tsErr('A nova senha deve ser diferente da atual.'); return; }
-  if(nova!==nova2){ tsErr('As senhas não coincidem.'); return; }
-  if(!DB.auth) DB.auth={email:ADMIN_EMAIL,pass:ADMIN_PASS,emailjs:ejsCfg()};
-  DB.auth.pass=nova;
-  save();
-  fecharModal('modal-trocar-senha');
-  alert('✅ Senha alterada com sucesso!');
+  window.abrirTrocarSenha();
 };
 
 /* credenciais e EmailJS na aba Segurança */
 window.salvarEmailLogin=function(){
-  var em=(document.getElementById('seg-email').value||'').trim();
-  if(!em||em.indexOf('@')<0){ alert('Digite um e-mail válido.'); return; }
-  if(!DB.auth) DB.auth={email:ADMIN_EMAIL,pass:ADMIN_PASS,emailjs:ejsCfg()};
-  DB.auth.email=em; save();
-  var u=document.getElementById('admin-user2'); if(u)u.textContent=em;
-  alert('E-mail de login atualizado!');
+  // com Netlify Identity o e-mail é gerenciado pelo painel netlify.com/identity
+  alert('O e-mail de login agora é gerenciado pelo Netlify Identity.\nAcesse: app.netlify.com → seu site → Identity para alterar.');
 };
 window.salvarEmailJS=function(){
-  if(!DB.auth) DB.auth={email:ADMIN_EMAIL,pass:ADMIN_PASS};
-  DB.auth.emailjs={
+  if(!DB.config) DB.config={};
+  DB.config.emailjs={
     service:(document.getElementById('seg-ejs-service').value||'').trim(),
     template:(document.getElementById('seg-ejs-template').value||'').trim(),
     publicKey:(document.getElementById('seg-ejs-key').value||'').trim()
@@ -1546,34 +1572,25 @@ window.salvarEmailJS=function(){
 window.testarEmailJS=function(){
   if(!ejsConfigurada()){ alert('Preencha e salve os 3 campos do EmailJS primeiro (e confira sua conexão).'); return; }
   var c=ejsCfg();
-  emailjs.send(c.service,c.template,{ to_email:authEmail(), email:authEmail(), passcode:'123456', codigo:'123456', time:'teste' }, c.publicKey)
-  .then(function(){ alert('✅ E-mail de teste enviado para '+authEmail()+'! Verifique a caixa de entrada (e o spam).'); },
+  var email=authEmail();
+  emailjs.send(c.service,c.template,{ to_email:email, email:email, passcode:'123456', codigo:'123456', time:'teste' }, c.publicKey)
+  .then(function(){ alert('✅ E-mail de teste enviado para '+email+'! Verifique a caixa de entrada (e o spam).'); },
         function(err){ console.warn(err); alert('❌ Falhou ao enviar. Verifique Service ID, Template ID e Public Key.'); });
 };
 function carregarSegurancaForm(){
-  var e=document.getElementById('seg-email'); if(e)e.value=authEmail();
+  var e=document.getElementById('seg-email'); if(e){ e.value=authEmail(); e.disabled=true; e.style.opacity='.5'; }
   var c=ejsCfg();
   var s=document.getElementById('seg-ejs-service'); if(s)s.value=c.service||'';
   var t=document.getElementById('seg-ejs-template'); if(t)t.value=c.template||'';
   var k=document.getElementById('seg-ejs-key'); if(k)k.value=c.publicKey||'';
 }
 window.fazerLogin=function(){
-  var email=(document.getElementById('login-email').value||'').trim().toLowerCase();
-  var pass=(document.getElementById('login-pass').value||'');
-  var err=document.getElementById('login-error');
-  var curEmail=((DB.auth&&DB.auth.email)||ADMIN_EMAIL).toLowerCase();
-  var curPass=(DB.auth&&DB.auth.pass)||ADMIN_PASS;
-  if(email===curEmail && pass===curPass){
-    if(err)err.classList.remove('show'); window.closeLogin();
-    document.getElementById('login-email').value=''; document.getElementById('login-pass').value='';
-    window.abrirPainel();
-  }else{ if(err)err.classList.add('show'); }
+  // mantido por compatibilidade — agora usa Netlify Identity
+  window.abrirNetlifyLogin();
 };
 function religar(){
-  var b=document.querySelector('.btn-login-submit'); if(b)b.onclick=function(e){if(e)e.preventDefault();window.fazerLogin();return false;};
   var n=document.querySelector('.nav-login'); if(n)n.onclick=function(e){if(e)e.preventDefault();window.openLogin();return false;};
   var c=document.querySelector('.login-close'); if(c)c.onclick=function(e){if(e)e.preventDefault();window.closeLogin();return false;};
-  var ey=document.querySelector('.login-eye'); if(ey)ey.onclick=function(e){if(e)e.preventDefault();window.toggleSenha();return false;};
   var rb=document.querySelector('.btn-rastreio'); if(rb)rb.onclick=function(e){if(e)e.preventDefault();window.rastrearOS();return false;};
   var ri=document.getElementById('os-input'); if(ri)ri.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();window.rastrearOS();}});
   aplicarLogo();
@@ -1582,7 +1599,7 @@ function religar(){
   renderDepoimentosPublic();
   aplicarPrecosNoOrcamento();
 }
-document.addEventListener('keydown',function(e){ if(e.key==='Enter'&&document.getElementById('login-overlay').classList.contains('open')) window.fazerLogin(); });
+document.addEventListener('keydown',function(e){ if(e.key==='Enter'&&document.getElementById('login-overlay').classList.contains('open')) window.abrirNetlifyLogin(); });
 
 /* ===================== PAINEL ===================== */
 window.abrirPainel=function(){
@@ -1628,7 +1645,14 @@ function gerarParticulasWelcome(){
     container.appendChild(el);
   }
 }
-window.fazerLogout=function(){ document.getElementById('admin-panel').classList.remove('open'); document.body.style.overflow=''; };
+window.fazerLogout=function(){
+  document.getElementById('admin-panel').classList.remove('open');
+  document.body.style.overflow='';
+  if(window.netlifyIdentity && window.netlifyIdentity.currentUser()){
+    window.netlifyIdentity.logout();
+  }
+  _netlifyUser=null;
+};
 window.toggleSidebar=function(){ document.getElementById('admin-sidebar').classList.toggle('show'); };
 var TAB_TITLES={dashboard:'📊 Dashboard',operacional:'📡 Núcleo Operacional',os:'🛠️ Ordens de Serviço',faturamento:'💰 Inteligência Financeira',clientes:'👥 Clientes',estoque:'📦 Estoque & Produtos',servicos:'🛠️ Serviços do Site',depoimentos:'💬 Depoimentos do Site',precos:'🏷️ Tabela de Preços (Orçamento)',tecnicos:'🧑\u200d🔧 Equipe Técnica',atendimento:'🎧 Atendimento',comercial:'🛒 Comercial & Vendas',relatorios:'📈 Relatórios',agenda:'📅 Agenda Técnica',administracao:'🛡️ Administração',seguranca:'🔒 Segurança',config:'⚙️ Configurações',telefones:'📱 Telefones à Venda',gastos:'💸 Gastos',notificacoes:'🔔 Notificações'};
 window.abrirTab=function(tab){
