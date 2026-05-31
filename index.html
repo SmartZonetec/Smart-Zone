@@ -11,8 +11,7 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
 <link rel="stylesheet" href="style.css">
 
-<!-- Netlify Identity Widget -->
-<script src="https://identity.netlify.com/v1/netlify-identity-widget.js"></script>
+<!-- (Login agora é feito pelo Firebase Authentication) -->
 
 <style id="admin-panel-styles">
 /* ===== LOGIN ERROR ===== */
@@ -314,6 +313,7 @@
 <!-- ════════════ FIREBASE (dados compartilhados entre todos os aparelhos) ════════════ -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script>
   // Configuração do projeto Smart Zone no Firebase
   var firebaseConfig = {
@@ -327,6 +327,9 @@
   };
   firebase.initializeApp(firebaseConfig);
   window.__fsdb = firebase.firestore();
+  window.__fsAuth = firebase.auth();
+  // Mantém o login salvo no aparelho até o admin sair manualmente
+  try{ window.__fsAuth.setPersistence(firebase.auth.Auth.Persistence.LOCAL); }catch(e){}
   // Documento único onde fica TODO o conteúdo do site (fotos, textos, etc.)
   window.__fsDoc = window.__fsdb.collection('site').doc('dados');
 </script>
@@ -778,15 +781,33 @@
       <p style="color:#8fcf8f;margin:10px 0 0;font-size:.9rem">Verificando credenciais...</p>
     </div>
 
-    <!-- Netlify Identity button -->
-    <div id="login-netlify-area" style="text-align:center;padding:10px 0">
-      <button class="btn-login-submit" id="btn-netlify-login" onclick="abrirNetlifyLogin()">
-        <i class="fas fa-right-to-bracket"></i> Entrar com sua conta
+    <!-- Login Firebase (e-mail + senha) -->
+    <div id="login-fb-area" style="padding:6px 0">
+      <div style="position:relative;margin-bottom:12px">
+        <i class="fas fa-envelope" style="position:absolute;left:14px;top:50%;transform:translateY(-50%);color:#5a8a5a"></i>
+        <input type="email" id="login-email" placeholder="E-mail do administrador" autocomplete="username"
+          style="width:100%;background:#0a140a;border:1px solid #1c4a2c;border-radius:11px;padding:13px 13px 13px 40px;color:#e6f5e6;font-family:inherit;font-size:.95rem;outline:none">
+      </div>
+      <div style="position:relative;margin-bottom:6px">
+        <i class="fas fa-lock" style="position:absolute;left:14px;top:50%;transform:translateY(-50%);color:#5a8a5a"></i>
+        <input type="password" id="login-pass" placeholder="Senha" autocomplete="current-password"
+          onkeydown="if(event.key==='Enter')window.fbLogin()"
+          style="width:100%;background:#0a140a;border:1px solid #1c4a2c;border-radius:11px;padding:13px 44px 13px 40px;color:#e6f5e6;font-family:inherit;font-size:.95rem;outline:none">
+        <button type="button" onclick="window.toggleSenha()" aria-label="Mostrar senha"
+          style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:#5a8a5a;cursor:pointer;font-size:1rem">
+          <i class="fas fa-eye" id="eye-icon"></i>
+        </button>
+      </div>
+      <div style="text-align:right;margin-bottom:12px">
+        <a href="#" onclick="window.fbRecuperar();return false;" style="color:#7fbf7f;font-size:.82rem;text-decoration:none">Esqueci minha senha</a>
+      </div>
+      <button class="btn-login-submit" id="btn-fb-login" onclick="window.fbLogin()" style="width:100%">
+        <i class="fas fa-right-to-bracket"></i> Entrar
       </button>
       <div class="login-error" id="login-error" style="margin-top:12px"><i class="fas fa-exclamation-circle"></i> <span id="login-error-txt">Acesso não autorizado.</span></div>
     </div>
 
-    <p class="login-hint" style="margin-top:14px"><i class="fas fa-shield-halved" style="color:#33ff77;margin-right:4px"></i> Login protegido pelo Netlify Identity</p>
+    <p class="login-hint" style="margin-top:14px"><i class="fas fa-shield-halved" style="color:#33ff77;margin-right:4px"></i> Acesso protegido por autenticação Firebase</p>
   </div>
 </div>
 
@@ -1414,7 +1435,7 @@
 <script id="admin-panel-script">
 (function(){
 "use strict";
-/* ── credenciais removidas do código ── segurança via Netlify Identity ── */
+/* ── credenciais removidas do código ── segurança via Firebase Authentication ── */
 var LOGO_DEFAULT="SMART_ZONE.png";
 
 /* ===================== STORAGE ===================== */
@@ -1429,14 +1450,59 @@ function load(){
   if(!Array.isArray(DB.precos)) DB.precos=[];
   if(!Array.isArray(DB.depoimentos)) DB.depoimentos=[];
 }
+/* ===== Comprime/redimensiona imagem antes de salvar =====
+   Garante que cada foto fique pequena (~80-150KB) para caber no
+   limite de 1MB por documento do Firebase. Sem isso, fotos grandes
+   do PC fazem o save online falhar e os outros aparelhos não veem nada. */
+function comprimirImagem(file, cb, maxLado, qualidade){
+  maxLado = maxLado || 1000;
+  qualidade = qualidade || 0.72;
+  // Se não for imagem (ex.: vídeo), devolve sem mexer
+  if(!file || !/^image\//.test(file.type)){
+    var rr=new FileReader();
+    rr.onload=function(){ cb(rr.result); };
+    rr.readAsDataURL(file);
+    return;
+  }
+  var reader=new FileReader();
+  reader.onload=function(){
+    var img=new Image();
+    img.onload=function(){
+      var w=img.width, h=img.height;
+      if(w>h && w>maxLado){ h=Math.round(h*maxLado/w); w=maxLado; }
+      else if(h>=w && h>maxLado){ w=Math.round(w*maxLado/h); h=maxLado; }
+      var canvas=document.createElement('canvas');
+      canvas.width=w; canvas.height=h;
+      var ctx=canvas.getContext('2d');
+      ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,w,h); // fundo branco p/ PNG transparente
+      ctx.drawImage(img,0,0,w,h);
+      try{ cb(canvas.toDataURL('image/jpeg', qualidade)); }
+      catch(e){ cb(reader.result); }
+    };
+    img.onerror=function(){ cb(reader.result); };
+    img.src=reader.result;
+  };
+  reader.readAsDataURL(file);
+}
+
 function save(){
   // 1) cache local (rápido, funciona offline no próprio aparelho)
   try{ localStorage.setItem('smartzone_db', JSON.stringify(DB)); }
   catch(e){ /* localStorage pode estar cheio; o que importa é o Firebase abaixo */ }
   // 2) salva no Firebase para que TODOS os aparelhos vejam o mesmo conteúdo
+  //    Só envia se houver administrador logado (o servidor também exige isso).
   try{
     if(window.__fsDoc){
-      window.__fsDoc.set(JSON.parse(JSON.stringify(DB)))
+      var logado = window.__fsAuth && window.__fsAuth.currentUser
+                   && _emailAutorizado(window.__fsAuth.currentUser.email);
+      if(!logado){ return; } // visitante comum nunca escreve
+      var payload=JSON.parse(JSON.stringify(DB));
+      var tamanho=JSON.stringify(payload).length;
+      // Firebase rejeita documentos acima de ~1MB. Avisamos antes.
+      if(tamanho > 1000000){
+        alert('Atenção: os dados ficaram grandes ('+Math.round(tamanho/1024)+' KB) e podem não salvar online. Tente usar fotos menores ou remover algumas, para que os outros aparelhos consigam ver o conteúdo.');
+      }
+      window.__fsDoc.set(payload)
         .catch(function(err){ console.warn('Falha ao salvar no Firebase:', err); alert('Não consegui salvar online. Verifique sua internet e tente de novo.'); });
     }
   }catch(e){ console.warn('save firebase erro', e); }
@@ -1458,97 +1524,141 @@ function aplicarLogo(){
 }
 window.onLogoSelected=function(ev){
   var f=ev.target.files[0]; if(!f) return;
-  var r=new FileReader();
-  r.onload=function(){ DB.logo=r.result; save(); aplicarLogo(); };
-  r.readAsDataURL(f);
+  comprimirImagem(f, function(src){ DB.logo=src; save(); aplicarLogo(); }, 500, 0.85);
 };
 window.resetLogo=function(){ DB.logo=null; save(); aplicarLogo(); };
 window.onFooterLogoSelected=function(ev){
   var f=ev.target.files[0]; if(!f) return;
-  var r=new FileReader();
-  r.onload=function(){ DB.logoFooter=r.result; save(); aplicarLogo(); alert('Logo do rodapé atualizada!'); };
-  r.readAsDataURL(f);
+  comprimirImagem(f, function(src){ DB.logoFooter=src; save(); aplicarLogo(); alert('Logo do rodapé atualizada!'); }, 500, 0.85);
 };
 window.resetFooterLogo=function(){ DB.logoFooter=null; save(); aplicarLogo(); alert('Logo do rodapé restaurada para o padrão.'); };
 
 /* ===================== LOGIN ===================== */
-/* ===================== NETLIFY IDENTITY AUTH ===================== */
-var _netlifyUser = null;
-var ALLOWED_EMAIL = 'Smartzonematriz@gmail.com';
 
-// Inicializa o Netlify Identity
-if(window.netlifyIdentity){
-  window.netlifyIdentity.on('init', function(user){
-    if(user){ _netlifyUser=user; }
-  });
-  window.netlifyIdentity.on('login', function(user){
-    _netlifyUser=user;
-    window.netlifyIdentity.close();
-    var err=document.getElementById('login-error');
-    // Fecha a janelinha verde imediatamente ao logar
-    window.closeLogin();
-    // Verifica se o e-mail é o autorizado
-    if(user.email.toLowerCase()===ALLOWED_EMAIL.toLowerCase()){
-      if(err)err.style.display='none';
+/* ═══════════════ AUTENTICAÇÃO FIREBASE (segurança forte) ═══════════════
+   - Só o e-mail autorizado consegue entrar no painel.
+   - A escrita no banco só acontece se houver login Firebase válido.
+   - As regras do Firestore (no console) bloqueiam de verdade no servidor:
+     mesmo que alguém burle o site, sem login não escreve nada. */
+var ALLOWED_EMAIL = 'smartzonematriz@gmail.com'; // e-mail do administrador (minúsculo)
+var _fbUser = null;          // usuário Firebase logado
+var _loginTentativas = 0;    // trava de força bruta
+var _loginBloqueadoAte = 0;  // timestamp até quando o login fica bloqueado
+
+function _emailAutorizado(email){
+  return email && email.toLowerCase().trim() === ALLOWED_EMAIL.toLowerCase().trim();
+}
+
+// Observa o estado de login. Roda ao abrir o site e a cada login/logout.
+if(window.__fsAuth){
+  window.__fsAuth.onAuthStateChanged(function(user){
+    if(user && _emailAutorizado(user.email)){
+      _fbUser = user;
       var u2=document.getElementById('admin-user2'); if(u2)u2.textContent=user.email;
-      window.abrirPainel();
     } else {
-      // e-mail não autorizado → desloga imediatamente
-      window.netlifyIdentity.logout();
-      _netlifyUser=null;
-      document.getElementById('login-overlay').classList.add('open');
-      if(err){
-        document.getElementById('login-error-txt').textContent='E-mail não autorizado para acessar o painel.';
-        err.style.display='flex';
+      _fbUser = null;
+      // Se logou com e-mail que não é o autorizado, desloga na hora
+      if(user && !_emailAutorizado(user.email)){
+        try{ window.__fsAuth.signOut(); }catch(e){}
       }
-    }
-  });
-  window.netlifyIdentity.on('logout', function(){
-    _netlifyUser=null;
-  });
-  // Quando o widget é fechado: se já existir usuário logado e autorizado,
-  // entra direto no painel (o evento 'login' não dispara para sessão já ativa)
-  window.netlifyIdentity.on('close', function(){
-    var current=window.netlifyIdentity.currentUser();
-    if(current && current.email.toLowerCase()===ALLOWED_EMAIL.toLowerCase()){
-      _netlifyUser=current;
-      var err=document.getElementById('login-error'); if(err)err.style.display='none';
-      var u2=document.getElementById('admin-user2'); if(u2)u2.textContent=current.email;
-      window.closeLogin();
-      window.abrirPainel();
-    } else if(!document.getElementById('admin-panel').classList.contains('open')){
-      // Fechou o widget sem logar e o painel não está aberto → reabre a janelinha verde
-      document.getElementById('login-overlay').classList.add('open');
     }
   });
 }
 
-window.abrirNetlifyLogin=function(){
-  if(!window.netlifyIdentity){
-    alert('Netlify Identity não carregou. Verifique sua conexão.');
+function _mostrarErroLogin(msg){
+  var err=document.getElementById('login-error');
+  var txt=document.getElementById('login-error-txt');
+  if(txt) txt.textContent=msg;
+  if(err) err.style.display='flex';
+}
+
+window.fbLogin=function(){
+  var err=document.getElementById('login-error'); if(err)err.style.display='none';
+
+  // Trava de força bruta: após 5 tentativas erradas, bloqueia por 60s
+  if(Date.now() < _loginBloqueadoAte){
+    var seg=Math.ceil((_loginBloqueadoAte-Date.now())/1000);
+    _mostrarErroLogin('Muitas tentativas. Aguarde '+seg+' segundos e tente de novo.');
     return;
   }
-  // Se já está logado com e-mail autorizado, entra direto
-  var current=window.netlifyIdentity.currentUser();
-  if(current && current.email.toLowerCase()===ALLOWED_EMAIL.toLowerCase()){
-    window.closeLogin();
-    window.abrirPainel();
+
+  var email=(document.getElementById('login-email').value||'').trim();
+  var senha=document.getElementById('login-pass').value||'';
+  if(!email || !senha){ _mostrarErroLogin('Preencha e-mail e senha.'); return; }
+
+  // Bloqueia já na entrada se o e-mail não for o autorizado
+  if(!_emailAutorizado(email)){
+    _loginTentativas++;
+    _mostrarErroLogin('E-mail não autorizado para acessar o painel.');
+    if(_loginTentativas>=5){ _loginBloqueadoAte=Date.now()+60000; _loginTentativas=0; }
     return;
   }
-  // Fecha a janelinha verde imediatamente ao abrir o widget do Netlify
-  window.closeLogin();
-  window.netlifyIdentity.open('login');
+
+  var loading=document.getElementById('login-loading');
+  var area=document.getElementById('login-fb-area');
+  if(loading)loading.style.display='block';
+  if(area)area.style.display='none';
+
+  window.__fsAuth.signInWithEmailAndPassword(email, senha)
+    .then(function(cred){
+      if(loading)loading.style.display='none';
+      if(area)area.style.display='block';
+      if(!_emailAutorizado(cred.user.email)){
+        window.__fsAuth.signOut();
+        _mostrarErroLogin('E-mail não autorizado.');
+        return;
+      }
+      _fbUser=cred.user;
+      _loginTentativas=0;
+      document.getElementById('login-pass').value='';
+      var u2=document.getElementById('admin-user2'); if(u2)u2.textContent=cred.user.email;
+      if(err)err.style.display='none';
+      window.closeLogin();
+      window.abrirPainel();
+    })
+    .catch(function(e){
+      if(loading)loading.style.display='none';
+      if(area)area.style.display='block';
+      _loginTentativas++;
+      var msg='E-mail ou senha incorretos.';
+      if(e && e.code==='auth/too-many-requests') msg='Muitas tentativas. Tente novamente mais tarde.';
+      else if(e && e.code==='auth/network-request-failed') msg='Sem conexão. Verifique sua internet.';
+      else if(e && e.code==='auth/invalid-email') msg='E-mail inválido.';
+      _mostrarErroLogin(msg);
+      if(_loginTentativas>=5){ _loginBloqueadoAte=Date.now()+60000; _loginTentativas=0; }
+    });
+};
+
+window.fbRecuperar=function(){
+  var email=(document.getElementById('login-email').value||'').trim();
+  if(!email){ _mostrarErroLogin('Digite seu e-mail no campo acima para receber o link de recuperação.'); return; }
+  if(!_emailAutorizado(email)){ _mostrarErroLogin('E-mail não autorizado.'); return; }
+  window.__fsAuth.sendPasswordResetEmail(email)
+    .then(function(){ alert('Enviamos um link de recuperação de senha para '+email+'. Confira sua caixa de entrada (e o spam).'); })
+    .catch(function(e){ _mostrarErroLogin('Não consegui enviar o e-mail. Verifique o endereço.'); });
+};
+
+window.fbLogout=function(){
+  try{ window.__fsAuth.signOut(); }catch(e){}
+  _fbUser=null;
 };
 
 window.openLogin=function(){
   var err=document.getElementById('login-error'); if(err)err.style.display='none';
+  // Se já está logado como admin, entra direto sem pedir senha de novo
+  if(_fbUser && _emailAutorizado(_fbUser.email)){
+    window.abrirPainel();
+    return;
+  }
   document.getElementById('login-overlay').classList.add('open');
 };
 window.closeLogin=function(){
   document.getElementById('login-overlay').classList.remove('open');
 };
+// Compatibilidade: trechos antigos chamavam abrirNetlifyLogin
+window.abrirNetlifyLogin=function(){ window.fbLogin(); };
 function authEmail(){
-  return (_netlifyUser&&_netlifyUser.email)||ALLOWED_EMAIL;
+  return (_fbUser&&_fbUser.email)||ALLOWED_EMAIL;
 }
 window.toggleSenha=function(){ var p=document.getElementById('login-pass'),i=document.getElementById('eye-icon'); if(p.type==='password'){p.type='text';i.className='fas fa-eye-slash';}else{p.type='password';i.className='fas fa-eye';} };
 
@@ -1620,15 +1730,22 @@ window.enviarCodigoRecuperacao=function(){
 };
 
 window.confirmarRecuperacao=function(){
-  // Recuperação de senha agora gerenciada pelo Netlify Identity
   fecharModal('modal-recuperar');
-  alert('Para redefinir sua senha, use o link de recuperação enviado pelo Netlify Identity para o seu e-mail.');
+  alert('Para redefinir sua senha, use a opção "Esqueci minha senha" na tela de login. Enviaremos um link para o seu e-mail.');
   window.openLogin();
 };
 
 /* trocar senha logado */
 window.abrirTrocarSenha=function(){
-  alert('A senha agora é gerenciada pelo Netlify Identity.\n\nPara alterar:\n1. Acesse app.netlify.com\n2. Vá em Identity → seu usuário\n3. Clique em "Send password recovery email"');
+  if(!window.__fsAuth || !window.__fsAuth.currentUser){
+    alert('Você precisa estar logado para trocar a senha.');
+    return;
+  }
+  var email=window.__fsAuth.currentUser.email;
+  if(!confirm('Vamos enviar um link de redefinição de senha para '+email+'. Deseja continuar?')) return;
+  window.__fsAuth.sendPasswordResetEmail(email)
+    .then(function(){ alert('Link de redefinição enviado para '+email+'. Confira sua caixa de entrada e o spam.'); })
+    .catch(function(e){ alert('Não consegui enviar o e-mail agora. Tente novamente mais tarde.'); });
 };
 function tsErr(msg){ var e=document.getElementById('ts-err'); if(!e)return; document.getElementById('ts-err-txt').textContent=msg; e.classList.add('show'); }
 window.confirmarTrocaSenha=function(){
@@ -1637,8 +1754,7 @@ window.confirmarTrocaSenha=function(){
 
 /* credenciais e EmailJS na aba Segurança */
 window.salvarEmailLogin=function(){
-  // com Netlify Identity o e-mail é gerenciado pelo painel netlify.com/identity
-  alert('O e-mail de login agora é gerenciado pelo Netlify Identity.\nAcesse: app.netlify.com → seu site → Identity para alterar.');
+  alert('O e-mail de login é gerenciado pelo Firebase Authentication.\nPara trocar o e-mail do administrador:\n1. Acesse console.firebase.google.com\n2. Vá em Authentication → Users\n3. Edite o usuário.\nLembre de atualizar também o e-mail autorizado no código (ALLOWED_EMAIL) e nas regras.');
 };
 window.salvarEmailJS=function(){
   if(!DB.config) DB.config={};
@@ -1666,8 +1782,7 @@ function carregarSegurancaForm(){
   var k=document.getElementById('seg-ejs-key'); if(k)k.value=c.publicKey||'';
 }
 window.fazerLogin=function(){
-  // mantido por compatibilidade — agora usa Netlify Identity
-  window.abrirNetlifyLogin();
+  window.fbLogin();
 };
 function religar(){
   var n=document.querySelector('.nav-login'); if(n)n.onclick=function(e){if(e)e.preventDefault();window.openLogin();return false;};
@@ -1680,7 +1795,7 @@ function religar(){
   renderDepoimentosPublic();
   aplicarPrecosNoOrcamento();
 }
-document.addEventListener('keydown',function(e){ if(e.key==='Enter'&&document.getElementById('login-overlay').classList.contains('open')) window.abrirNetlifyLogin(); });
+document.addEventListener('keydown',function(e){ if(e.key==='Enter'&&document.getElementById('login-overlay').classList.contains('open')) window.fbLogin(); });
 
 /* ===================== PAINEL ===================== */
 window.abrirPainel=function(){
@@ -1704,13 +1819,10 @@ window.fecharWelcomeEntrar=function(){
 };
 window.onWelcomeAvatarSelected=function(ev){
   var f=ev.target.files[0]; if(!f) return;
-  var r=new FileReader();
-  r.onload=function(){
-    var src=r.result;
+  comprimirImagem(f, function(src){
     document.getElementById('welcome-avatar-img').src=src;
-    localStorage.setItem('smartzone_admin_avatar', src);
-  };
-  r.readAsDataURL(f);
+    try{ localStorage.setItem('smartzone_admin_avatar', src); }catch(e){}
+  }, 300, 0.85);
 };
 function gerarParticulasWelcome(){
   var container=document.getElementById('welcome-particles');
@@ -1729,10 +1841,7 @@ function gerarParticulasWelcome(){
 window.fazerLogout=function(){
   document.getElementById('admin-panel').classList.remove('open');
   document.body.style.overflow='';
-  if(window.netlifyIdentity && window.netlifyIdentity.currentUser()){
-    window.netlifyIdentity.logout();
-  }
-  _netlifyUser=null;
+  window.fbLogout();
 };
 window.toggleSidebar=function(){ document.getElementById('admin-sidebar').classList.toggle('show'); };
 var TAB_TITLES={dashboard:'📊 Dashboard',operacional:'📡 Núcleo Operacional',os:'🛠️ Ordens de Serviço',faturamento:'💰 Inteligência Financeira',clientes:'👥 Clientes',estoque:'📦 Estoque & Produtos',servicos:'🛠️ Serviços do Site',depoimentos:'💬 Depoimentos do Site',precos:'🏷️ Tabela de Preços (Orçamento)',tecnicos:'🧑\u200d🔧 Equipe Técnica',atendimento:'🎧 Atendimento',comercial:'🛒 Comercial & Vendas',relatorios:'📈 Relatórios',agenda:'📅 Agenda Técnica',administracao:'🛡️ Administração',seguranca:'🔒 Segurança',config:'⚙️ Configurações',telefones:'📱 Telefones à Venda',gastos:'💸 Gastos',notificacoes:'🔔 Notificações'};
@@ -1805,9 +1914,7 @@ window.abrirModalPhone=function(id){
 };
 window.onPhonePhoto=function(ev){
   var f=ev.target.files[0]; if(!f) return;
-  var r=new FileReader();
-  r.onload=function(){ phPhoto=r.result; var prev=document.getElementById('ph-img-preview'); prev.src=phPhoto; prev.style.display='block'; };
-  r.readAsDataURL(f);
+  comprimirImagem(f, function(src){ phPhoto=src; var prev=document.getElementById('ph-img-preview'); prev.src=phPhoto; prev.style.display='block'; });
 };
 window.salvarPhone=function(){
   var id=document.getElementById('ph-id').value;
@@ -2343,9 +2450,7 @@ window.abrirModalSvc=function(i){
 };
 window.onSvcPhoto=function(ev){
   var f=ev.target.files[0]; if(!f) return;
-  var r=new FileReader();
-  r.onload=function(){ svcPhoto=r.result; svcPhotoTipo='foto'; svcMostrarPreview(); };
-  r.readAsDataURL(f);
+  comprimirImagem(f, function(src){ svcPhoto=src; svcPhotoTipo='foto'; svcMostrarPreview(); });
 };
 window.onSvcVideo=function(ev){
   var f=ev.target.files[0]; if(!f) return;
@@ -2461,9 +2566,7 @@ window.abrirModalDep=function(id){
 };
 window.onDepPhoto=function(ev){
   var f=ev.target.files[0]; if(!f) return;
-  var r=new FileReader();
-  r.onload=function(){ depPhoto=r.result; var prev=document.getElementById('dep-img-preview'); prev.src=depPhoto; prev.style.display='block'; };
-  r.readAsDataURL(f);
+  comprimirImagem(f, function(src){ depPhoto=src; var prev=document.getElementById('dep-img-preview'); prev.src=depPhoto; prev.style.display='block'; }, 400, 0.8);
 };
 window.salvarDep=function(){
   var id=document.getElementById('dep-id').value;
