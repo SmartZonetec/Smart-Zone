@@ -1533,12 +1533,12 @@ function aplicarLogo(){
 }
 window.onLogoSelected=function(ev){
   var f=ev.target.files[0]; if(!f) return;
-  comprimirImagem(f, function(src){ DB.logo=src; save(); aplicarLogo(); }, 500, 0.85, true);
+  comprimirImagem(f, function(src){ DB.logo=src; save(); aplicarLogo(); }, 300, 0.85, true);
 };
 window.resetLogo=function(){ DB.logo=null; save(); aplicarLogo(); };
 window.onFooterLogoSelected=function(ev){
   var f=ev.target.files[0]; if(!f) return;
-  comprimirImagem(f, function(src){ DB.logoFooter=src; save(); aplicarLogo(); alert('Logo do rodapé atualizada!'); }, 500, 0.85, true);
+  comprimirImagem(f, function(src){ DB.logoFooter=src; save(); aplicarLogo(); alert('Logo do rodapé atualizada!'); }, 300, 0.85, true);
 };
 window.resetFooterLogo=function(){ DB.logoFooter=null; save(); aplicarLogo(); alert('Logo do rodapé restaurada para o padrão.'); };
 
@@ -1923,7 +1923,7 @@ window.abrirModalPhone=function(id){
 };
 window.onPhonePhoto=function(ev){
   var f=ev.target.files[0]; if(!f) return;
-  comprimirImagem(f, function(src){ phPhoto=src; var prev=document.getElementById('ph-img-preview'); prev.src=phPhoto; prev.style.display='block'; });
+  comprimirImagem(f, function(src){ phPhoto=src; var prev=document.getElementById('ph-img-preview'); prev.src=phPhoto; prev.style.display='block'; }, 800, 0.7);
 };
 window.salvarPhone=function(){
   var id=document.getElementById('ph-id').value;
@@ -2459,7 +2459,7 @@ window.abrirModalSvc=function(i){
 };
 window.onSvcPhoto=function(ev){
   var f=ev.target.files[0]; if(!f) return;
-  comprimirImagem(f, function(src){ svcPhoto=src; svcPhotoTipo='foto'; svcMostrarPreview(); });
+  comprimirImagem(f, function(src){ svcPhoto=src; svcPhotoTipo='foto'; svcMostrarPreview(); }, 800, 0.7);
 };
 window.onSvcVideo=function(ev){
   var f=ev.target.files[0]; if(!f) return;
