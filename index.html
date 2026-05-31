@@ -1813,8 +1813,8 @@ window.abrirPainel=function(){
   wo.classList.add('open');
   document.body.style.overflow='hidden';
   gerarParticulasWelcome();
-  // aplica foto salva
-  var savedAvatar=localStorage.getItem('smartzone_admin_avatar');
+  // aplica foto salva (prioriza a que veio do Firebase, vale em qualquer aparelho)
+  var savedAvatar = DB.adminAvatar || localStorage.getItem('smartzone_admin_avatar');
   if(savedAvatar){ document.getElementById('welcome-avatar-img').src=savedAvatar; }
 };
 window.fecharWelcomeEntrar=function(){
@@ -1831,6 +1831,8 @@ window.onWelcomeAvatarSelected=function(ev){
   comprimirImagem(f, function(src){
     document.getElementById('welcome-avatar-img').src=src;
     try{ localStorage.setItem('smartzone_admin_avatar', src); }catch(e){}
+    // Salva também no Firebase para aparecer em qualquer aparelho após login
+    DB.adminAvatar=src; save();
   }, 300, 0.85);
 };
 function gerarParticulasWelcome(){
@@ -2743,6 +2745,8 @@ function carregarDoFirebase(){
         try{ renderVitrine(); }catch(e){}
         try{ renderServicosPublic(); }catch(e){}
         try{ renderDepoimentosPublic(); }catch(e){}
+        // aplica a foto do admin (caso a tela de boas-vindas já esteja aberta)
+        try{ if(DB.adminAvatar){ var av=document.getElementById('welcome-avatar-img'); if(av) av.src=DB.adminAvatar; } }catch(e){}
       }
     } else {
       // Primeira vez: ainda não existe nada na nuvem.
