@@ -5,7 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Smart Zone — Um Novo Conceito de Tecnologia</title>
 <link rel="icon" type="image/png" href="SMART_ZONE.png">
-<link rel="apple-touch-icon" href="SMART_ZONE.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<!-- ════════════ PWA (app instalável) ════════════ -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#050805">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Smart Zone">
 <meta name="description" content="Smart Zone — Um novo conceito de tecnologia. Assistência técnica especializada em smartphones, computadores, placas mãe e placas de vídeo. Venda de telefones novos e usados.">
 <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=Barlow:ital,wght@0,400;0,600;0,700;0,800;1,700;1,800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
@@ -2763,5 +2770,13 @@ if(document.readyState==='loading'){ document.addEventListener('DOMContentLoaded
 </script>
 
 
+<script>
+// Registra o service worker (necessário para o app ser instalável)
+if('serviceWorker' in navigator){
+  window.addEventListener('load', function(){
+    navigator.serviceWorker.register('sw.js').catch(function(e){ console.warn('SW falhou', e); });
+  });
+}
+</script>
 </body>
 </html>
