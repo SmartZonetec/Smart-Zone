@@ -311,6 +311,26 @@
 <!-- EmailJS: envio real de e-mail (código de recuperação de senha) -->
 <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 
+<!-- ════════════ FIREBASE (dados compartilhados entre todos os aparelhos) ════════════ -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+  // Configuração do projeto Smart Zone no Firebase
+  var firebaseConfig = {
+    apiKey: "AIzaSyCzSd9eH4QGM7nHn98tzif6heVV2ylHtgI",
+    authDomain: "smart-zone-e2d7e.firebaseapp.com",
+    projectId: "smart-zone-e2d7e",
+    storageBucket: "smart-zone-e2d7e.firebasestorage.app",
+    messagingSenderId: "835928321702",
+    appId: "1:835928321702:web:b8322bc8face65cba9ce67",
+    measurementId: "G-3S8XDK0P6X"
+  };
+  firebase.initializeApp(firebaseConfig);
+  window.__fsdb = firebase.firestore();
+  // Documento único onde fica TODO o conteúdo do site (fotos, textos, etc.)
+  window.__fsDoc = window.__fsdb.collection('site').doc('dados');
+</script>
+
 </head>
 <body>
 
@@ -1410,8 +1430,16 @@ function load(){
   if(!Array.isArray(DB.depoimentos)) DB.depoimentos=[];
 }
 function save(){
+  // 1) cache local (rápido, funciona offline no próprio aparelho)
   try{ localStorage.setItem('smartzone_db', JSON.stringify(DB)); }
-  catch(e){ alert('Não foi possível salvar (armazenamento cheio). Tente fotos menores.'); }
+  catch(e){ /* localStorage pode estar cheio; o que importa é o Firebase abaixo */ }
+  // 2) salva no Firebase para que TODOS os aparelhos vejam o mesmo conteúdo
+  try{
+    if(window.__fsDoc){
+      window.__fsDoc.set(JSON.parse(JSON.stringify(DB)))
+        .catch(function(err){ console.warn('Falha ao salvar no Firebase:', err); alert('Não consegui salvar online. Verifique sua internet e tente de novo.'); });
+    }
+  }catch(e){ console.warn('save firebase erro', e); }
 }
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
 function brl(v){ var n=parseFloat(v)||0; return 'R$ '+n.toLocaleString('pt-BR',{minimumFractionDigits:0,maximumFractionDigits:2}); }
@@ -2578,8 +2606,43 @@ function renderSeguranca(){
 function renderTudo(){ renderDashboard(); renderOS(); renderPhonesAdmin(); renderFaturamento(); renderGastos(); renderEstoque(); renderClientes(); renderTecnicos(); renderRelatorios(); renderNotifs(); renderOperacional(); renderSeguranca(); renderServicosAdmin(); renderPrecos(); renderDepoimentosAdmin(); }
 
 /* ===================== INIT ===================== */
-load();
+load(); // carrega do cache local primeiro (mostra algo rápido)
 if(document.readyState==='loading'){ document.addEventListener('DOMContentLoaded',religar); } else { religar(); }
+
+/* ===== Busca os dados COMPARTILHADOS do Firebase ===== */
+/* Isto faz com que TODA pessoa que abrir o site (celular, outro PC) veja
+   exatamente o mesmo conteúdo que o administrador salvou. */
+function carregarDoFirebase(){
+  if(!window.__fsDoc){ return; }
+  window.__fsDoc.get().then(function(snap){
+    if(snap.exists){
+      var dados = snap.data();
+      if(dados){
+        DB = Object.assign(DB, dados);
+        if(!DB.config) DB.config={};
+        if(!Array.isArray(DB.servicos)) DB.servicos=[];
+        if(!Array.isArray(DB.precos)) DB.precos=[];
+        if(!Array.isArray(DB.depoimentos)) DB.depoimentos=[];
+        try{ localStorage.setItem('smartzone_db', JSON.stringify(DB)); }catch(e){}
+        // redesenha o site já com o conteúdo vindo da nuvem
+        try{ aplicarLogo(); }catch(e){}
+        try{ carregarConfigForm(); }catch(e){}
+        try{ renderTudo(); }catch(e){}
+        try{ renderVitrine(); }catch(e){}
+        try{ renderServicosPublic(); }catch(e){}
+        try{ renderDepoimentosPublic(); }catch(e){}
+      }
+    } else {
+      // Primeira vez: ainda não existe nada na nuvem.
+      // Se já houver dados locais do admin, envia para a nuvem.
+      var temAlgo = (DB.phones&&DB.phones.length) || (DB.servicos&&DB.servicos.length) || DB.logo;
+      if(temAlgo){ try{ window.__fsDoc.set(JSON.parse(JSON.stringify(DB))); }catch(e){} }
+    }
+  }).catch(function(err){
+    console.warn('Não consegui ler do Firebase:', err);
+  });
+}
+if(document.readyState==='loading'){ document.addEventListener('DOMContentLoaded',carregarDoFirebase); } else { carregarDoFirebase(); }
 })();
 </script>
 
